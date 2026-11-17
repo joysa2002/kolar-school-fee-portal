@@ -7,7 +7,6 @@ from google.oauth2.service_account import Credentials
 # --- PAGE CONFIG ---
 st.set_page_config(
     page_title="GVN School Fee Portal",
-    page_icon="🏫",
     layout="wide"
 )
 
@@ -16,7 +15,6 @@ CLASS_TABS = ["LKG", "UKG", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th"]
 # --- CUSTOM AESTHETIC THEME (Honeydew, Mint, Seafoam, Paris Green, White, Black) ---
 st.markdown("""
 <style>
-    /* Color Palette Variables */
     :root {
         --honeydew: #F0FFF0;
         --mint-green: #B8F2D0;
@@ -27,13 +25,11 @@ st.markdown("""
         --ink-black: #111814;
     }
 
-    /* Main App Background */
     .stApp {
         background-color: var(--honeydew);
         color: var(--ink-black);
     }
 
-    /* Sidebar Styling */
     [data-testid="stSidebar"] {
         background-color: var(--ink-black);
         border-right: 3px solid var(--paris-bright);
@@ -45,14 +41,12 @@ st.markdown("""
         color: var(--seafoam) !important;
     }
 
-    /* Headings */
     h1, h2, h3 {
         color: var(--ink-black) !important;
         font-weight: 700 !important;
         letter-spacing: -0.02em;
     }
 
-    /* Metric Cards */
     [data-testid="stMetric"] {
         background-color: var(--pure-white);
         border: 1.5px solid var(--mint-green);
@@ -71,7 +65,6 @@ st.markdown("""
         font-weight: 800 !important;
     }
 
-    /* Forms & Containers */
     [data-testid="stForm"] {
         background-color: var(--pure-white);
         border: 1.5px solid var(--mint-green);
@@ -80,7 +73,6 @@ st.markdown("""
         box-shadow: 0 6px 18px rgba(17, 24, 20, 0.04);
     }
 
-    /* Primary & Form Submit Buttons (Paris Green) */
     .stButton > button, [data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, var(--paris-bright), var(--paris-green)) !important;
         color: var(--pure-white) !important;
@@ -97,7 +89,6 @@ st.markdown("""
         transform: translateY(-1px);
     }
 
-    /* Download Button */
     [data-testid="stDownloadButton"] > button {
         background-color: var(--pure-white) !important;
         color: var(--paris-green) !important;
@@ -110,7 +101,6 @@ st.markdown("""
         color: var(--ink-black) !important;
     }
 
-    /* Inputs & Selectboxes */
     .stSelectbox div[data-baseweb="select"] > div,
     .stTextInput input,
     .stNumberInput input,
@@ -121,7 +111,6 @@ st.markdown("""
         border-radius: 8px !important;
     }
 
-    /* Custom Header Banner */
     .school-banner {
         background: linear-gradient(120deg, var(--ink-black) 0%, #1B3B2B 60%, var(--paris-green) 100%);
         color: var(--pure-white);
@@ -141,7 +130,6 @@ st.markdown("""
         font-size: 0.95rem;
     }
 
-    /* History Card Badge */
     .history-header {
         background-color: var(--mint-green);
         color: var(--ink-black);
@@ -274,7 +262,6 @@ if page == "💳 Update Student Fee":
         row_index = int(student_row.name) + 2
         student_id = str(student_row["Student_ID"])
         
-        # Top Summary Metrics
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Roll / ID", student_id)
         m2.metric("Total Annual Fee", f"₹{int(student_row['Total_Fee']):,}")
@@ -284,7 +271,6 @@ if page == "💳 Update Student Fee":
         st.write("")
         left_col, right_col = st.columns([1.1, 1])
         
-        # LEFT: Edit / Add Payment Form
         with left_col:
             st.subheader("📝 Record / Edit Payment")
             with st.form("edit_fee_form"):
@@ -299,11 +285,15 @@ if page == "💳 Update Student Fee":
                 if st.form_submit_button("Save & Update Student Record", use_container_width=True):
                     final_paid = new_paid + add_payment
                     final_balance = new_total - final_paid
+                    formula_str = f"=C{row_index}-D{row_index}"
                     
-                    # Update Student Row (Cols C, D, E -> 3, 4, 5)
-                    worksheet.update(f"C{row_index}:E{row_index}", [[new_total, final_paid, final_balance]])
+                    # Write Total, Paid, and live Balance formula (=C{row}-D{row})
+                    worksheet.update(
+                        f"C{row_index}:E{row_index}",
+                        [[new_total, final_paid, formula_str]],
+                        value_input_option="USER_ENTERED"
+                    )
                     
-                    # Log into Payment_History if a new payment was added
                     if add_payment > 0:
                         _, hist_ws = load_payment_history()
                         if hist_ws:
@@ -314,12 +304,11 @@ if page == "💳 Update Student Fee":
                                 selected_student,
                                 add_payment,
                                 pay_note if pay_note else "Single Entry"
-                            ])
+                            ], value_input_option="USER_ENTERED")
                     
                     st.success(f"Updated **{selected_student}**! Remaining Balance: ₹{final_balance:,}")
                     st.rerun()
         
-        # RIGHT: Student Payment History Table
         with right_col:
             st.subheader("📜 Payment History")
             hist_df, _ = load_payment_history()
@@ -407,15 +396,18 @@ elif page == "⚡ Bulk Fee Entry (25+)":
                 if paying_students.empty:
                     st.warning("Enter an amount greater than 0 for at least one student before saving.")
                 else:
-                    # Prepare full updated columns C:E for the entire class in 1 API call
                     updated_rows = []
                     history_rows = []
                     
                     for idx, row in edited_df.iterrows():
+                        sheet_row = int(idx) + 2
                         paid_today = int(row["Amount_Paid_Today"])
                         new_total_paid = int(row["Amount_Paid"]) + paid_today
-                        new_bal = int(row["Total_Fee"]) - new_total_paid
-                        updated_rows.append([int(row["Total_Fee"]), new_total_paid, new_bal])
+                        updated_rows.append([
+                            int(row["Total_Fee"]),
+                            new_total_paid,
+                            f"=C{sheet_row}-D{sheet_row}"
+                        ])
                         
                         if paid_today > 0:
                             history_rows.append([
@@ -427,14 +419,16 @@ elif page == "⚡ Bulk Fee Entry (25+)":
                                 batch_note
                             ])
                     
-                    # Batch update class sheet (Row 2 to last row, Columns C to E)
                     end_row = len(updated_rows) + 1
-                    worksheet.update(f"C2:E{end_row}", updated_rows)
+                    worksheet.update(
+                        f"C2:E{end_row}",
+                        updated_rows,
+                        value_input_option="USER_ENTERED"
+                    )
                     
-                    # Batch append to Payment_History
                     _, hist_ws = load_payment_history()
                     if hist_ws and history_rows:
-                        hist_ws.append_rows(history_rows)
+                        hist_ws.append_rows(history_rows, value_input_option="USER_ENTERED")
                     
                     st.success(f"Saved payments for **{len(paying_students)} students** in **{batch_class}** (Total: ₹{int(paying_students['Amount_Paid_Today'].sum()):,})!")
                     st.balloons()
@@ -452,7 +446,6 @@ elif page == "⚡ Bulk Fee Entry (25+)":
             with c_date:
                 default_batch_date = st.date_input("Default Payment Date", value=date.today())
             
-            # Build "Class | Student_Name (ID)" lookup list
             all_df["Display_Label"] = all_df["Class"] + " | " + all_df["Student_Name"].astype(str) + " (ID: " + all_df["Student_ID"].astype(str) + ")"
             student_options = all_df["Display_Label"].tolist()
             
@@ -483,7 +476,6 @@ elif page == "⚡ Bulk Fee Entry (25+)":
                 if valid_entries.empty:
                     st.warning("Please select at least one student and enter an amount > 0.")
                 else:
-                    # Group updates by class to minimize API calls
                     history_rows = []
                     updates_by_class = {}
                     
@@ -504,14 +496,24 @@ elif page == "⚡ Bulk Fee Entry (25+)":
                             if mask.any():
                                 r_idx = cls_df[mask].index[0]
                                 cls_df.at[r_idx, "Amount_Paid"] = int(cls_df.at[r_idx, "Amount_Paid"]) + amt
-                                cls_df.at[r_idx, "Balance"] = int(cls_df.at[r_idx, "Total_Fee"]) - int(cls_df.at[r_idx, "Amount_Paid"])
                         
-                        updated_cols = cls_df[["Total_Fee", "Amount_Paid", "Balance"]].values.tolist()
-                        ws.update(f"C2:E{len(updated_cols) + 1}", updated_cols)
+                        updated_cols = []
+                        for idx, r in cls_df.iterrows():
+                            sheet_row = int(idx) + 2
+                            updated_cols.append([
+                                int(r["Total_Fee"]),
+                                int(r["Amount_Paid"]),
+                                f"=C{sheet_row}-D{sheet_row}"
+                            ])
+                        ws.update(
+                            f"C2:E{len(updated_cols) + 1}",
+                            updated_cols,
+                            value_input_option="USER_ENTERED"
+                        )
                     
                     _, hist_ws = load_payment_history()
                     if hist_ws and history_rows:
-                        hist_ws.append_rows(history_rows)
+                        hist_ws.append_rows(history_rows, value_input_option="USER_ENTERED")
                     
                     st.success(f"Successfully recorded **{len(valid_entries)} payments** across **{len(updates_by_class)} classes**!")
                     st.rerun()
@@ -584,12 +586,20 @@ elif page == "➕ Add New Student":
             if s_id and s_name:
                 balance = s_total - s_paid
                 ws = spreadsheet.worksheet(s_class)
-                ws.append_row([s_id, s_name, s_total, s_paid, balance])
+                next_row = len(ws.get_all_values()) + 1
+                
+                ws.append_row(
+                    [s_id, s_name, s_total, s_paid, f"=C{next_row}-D{next_row}"],
+                    value_input_option="USER_ENTERED"
+                )
                 
                 if s_paid > 0:
                     _, hist_ws = load_payment_history()
                     if hist_ws:
-                        hist_ws.append_row([str(s_date), s_class, s_id, s_name, s_paid, "Initial Admission Fee"])
+                        hist_ws.append_row(
+                            [str(s_date), s_class, s_id, s_name, s_paid, "Initial Admission Fee"],
+                            value_input_option="USER_ENTERED"
+                        )
                 
                 st.success(f"**{s_name}** added to **{s_class}**! Remaining Balance: ₹{balance:,}")
                 st.rerun()
