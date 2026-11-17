@@ -32,7 +32,6 @@ st.markdown("""
         color: var(--ink-black);
     }
 
-    /* Force dark, crisp text on all form labels & captions */
     [data-testid="stWidgetLabel"],
     [data-testid="stWidgetLabel"] p,
     [data-testid="stWidgetLabel"] label,
@@ -41,7 +40,6 @@ st.markdown("""
         font-weight: 600 !important;
     }
 
-    /* Sidebar Styling */
     [data-testid="stSidebar"] {
         background-color: var(--ink-black);
         border-right: 3px solid var(--paris-bright);
@@ -59,7 +57,6 @@ st.markdown("""
         letter-spacing: -0.02em;
     }
 
-    /* Metric Cards */
     [data-testid="stMetric"] {
         background-color: var(--pure-white);
         border: 1.5px solid var(--mint-green);
@@ -78,7 +75,6 @@ st.markdown("""
         font-weight: 800 !important;
     }
 
-    /* Forms & Containers */
     [data-testid="stForm"] {
         background-color: var(--pure-white);
         border: 1.5px solid var(--mint-green);
@@ -87,7 +83,6 @@ st.markdown("""
         box-shadow: 0 6px 18px rgba(17, 24, 20, 0.04);
     }
 
-    /* Primary & Form Submit Buttons */
     .stButton > button, [data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, var(--paris-bright), var(--paris-green)) !important;
         color: var(--pure-white) !important;
@@ -107,7 +102,6 @@ st.markdown("""
         transform: translateY(-1px);
     }
 
-    /* Download Button */
     [data-testid="stDownloadButton"] > button {
         background-color: var(--pure-white) !important;
         color: var(--paris-green) !important;
@@ -119,7 +113,6 @@ st.markdown("""
         color: var(--paris-green) !important;
     }
 
-    /* Inputs, Date Pickers & Placeholders */
     .stSelectbox div[data-baseweb="select"] > div,
     .stTextInput input,
     .stNumberInput input,
@@ -135,7 +128,6 @@ st.markdown("""
         opacity: 1 !important;
     }
 
-    /* Header Banner */
     .school-banner {
         background: linear-gradient(120deg, var(--ink-black) 0%, #1B3B2B 60%, var(--paris-green) 100%);
         color: var(--pure-white);
@@ -214,7 +206,6 @@ def get_spreadsheet():
 spreadsheet = get_spreadsheet()
 
 def clean_int_series(series):
-    """Safely converts strings, commas, currency symbols, or blanks into clean integers."""
     cleaned = (
         series.astype(str)
         .str.replace("₹", "", regex=False)
@@ -223,26 +214,36 @@ def clean_int_series(series):
     )
     return pd.to_numeric(cleaned, errors="coerce").fillna(0).astype(int)
 
-def load_class_data(class_name):
-    """Reads columns A:E safely without failing on duplicate/blank headers or blank cells."""
+def load_class_data(class_name, include_unassigned=False):
+    """
+    Reads columns A:E and tracks exact Google Sheet row numbers (`Sheet_Row`).
+    By default, hides pre-filled Student_ID rows that have no Student_Name yet.
+    """
     worksheet = spreadsheet.worksheet(class_name)
     all_values = worksheet.get_all_values()
+    cols_with_row = EXPECTED_COLS + ["Sheet_Row"]
     
     if len(all_values) <= 1:
-        return pd.DataFrame(columns=EXPECTED_COLS), worksheet
+        return pd.DataFrame(columns=cols_with_row), worksheet
     
     rows = []
-    for r in all_values[1:]:
-        # Pad row to at least 5 columns
+    for sheet_row_idx, r in enumerate(all_values[1:], start=2):
         padded = (r + ["", "", "", "", ""])[:5]
-        # Skip completely empty rows
-        if any(cell.strip() != "" for cell in padded[:2]):
-            rows.append(padded)
+        s_id = padded[0].strip()
+        s_name = padded[1].strip()
+        
+        if include_unassigned:
+            if s_id != "" or s_name != "":
+                rows.append(padded + [sheet_row_idx])
+        else:
+            # Only show active students who have a Name entered
+            if s_name != "":
+                rows.append(padded + [sheet_row_idx])
             
     if not rows:
-        return pd.DataFrame(columns=EXPECTED_COLS), worksheet
+        return pd.DataFrame(columns=cols_with_row), worksheet
         
-    df = pd.DataFrame(rows, columns=EXPECTED_COLS)
+    df = pd.DataFrame(rows, columns=cols_with_row)
     df["Student_ID"] = df["Student_ID"].astype(str).str.strip()
     df["Student_Name"] = df["Student_Name"].astype(str).str.strip()
     df["Total_Fee"] = clean_int_series(df["Total_Fee"])
@@ -268,7 +269,7 @@ def load_all_classes_data():
     all_dfs = []
     for cls in CLASS_TABS:
         try:
-            temp_df, _ = load_class_data(cls)
+            temp_df, _ = load_class_data(cls, include_unassigned=False)
             if not temp_df.empty:
                 temp_df.insert(0, "Class", cls)
                 all_dfs.append(temp_df)
@@ -276,7 +277,7 @@ def load_all_classes_data():
             pass
     if all_dfs:
         return pd.concat(all_dfs, ignore_index=True)
-    return pd.DataFrame(columns=["Class"] + EXPECTED_COLS)
+    return pd.DataFrame(columns=["Class"] + EXPECTED_COLS + ["Sheet_Row"])
 
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.markdown("## 🌿 Fee Portal Menu")
@@ -313,15 +314,16 @@ if page == "💳 Update Student Fee":
     df, worksheet = load_class_data(selected_class)
     
     if df.empty:
-        st.warning(f"No student records found in **{selected_class}**.")
+        st.warning(f"No enrolled students found in **{selected_class}**.")
     else:
         with c_sel2:
-            student_names = df["Student_Name"].tolist()
-            selected_student = st.selectbox("Select Student", student_names)
+            df["Selector_Label"] = df["Student_ID"] + " - " + df["Student_Name"]
+            selected_label = st.selectbox("Select Student", df["Selector_Label"].tolist())
         
-        student_row = df[df["Student_Name"] == selected_student].iloc[0]
-        row_index = int(student_row.name) + 2
+        student_row = df[df["Selector_Label"] == selected_label].iloc[0]
+        row_index = int(student_row["Sheet_Row"])
         student_id = str(student_row["Student_ID"])
+        selected_student = str(student_row["Student_Name"])
         
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Roll / ID", student_id)
@@ -376,7 +378,7 @@ if page == "💳 Update Student Fee":
             if not hist_df.empty:
                 student_hist = hist_df[
                     (hist_df["Class"].str.strip() == selected_class) &
-                    (hist_df["Student_Name"].str.strip() == selected_student)
+                    (hist_df["Student_ID"].str.strip() == student_id)
                 ].copy()
             else:
                 student_hist = pd.DataFrame()
@@ -423,17 +425,18 @@ elif page == "⚡ Bulk Fee Entry (25+)":
         df_class, worksheet = load_class_data(batch_class)
         
         if df_class.empty:
-            st.warning(f"No students found in {batch_class}.")
+            st.warning(f"No enrolled students found in {batch_class}.")
         else:
             st.caption("👇 Type the amount received in the **Amount Paid Today** column (leave `0` for students who didn't pay today), then click **Save All Payments**.")
             
-            editor_df = df_class[["Student_ID", "Student_Name", "Total_Fee", "Amount_Paid", "Balance"]].copy()
+            editor_df = df_class[["Student_ID", "Student_Name", "Total_Fee", "Amount_Paid", "Balance", "Sheet_Row"]].copy()
             editor_df["Amount_Paid_Today"] = 0
             
             edited_df = st.data_editor(
                 editor_df,
-                disabled=["Student_ID", "Student_Name", "Total_Fee", "Amount_Paid", "Balance"],
+                disabled=["Student_ID", "Student_Name", "Total_Fee", "Amount_Paid", "Balance", "Sheet_Row"],
                 column_config={
+                    "Sheet_Row": None,  # Hide internal row tracker from UI
                     "Amount_Paid_Today": st.column_config.NumberColumn(
                         "Amount Paid Today (₹)",
                         min_value=0,
@@ -457,35 +460,29 @@ elif page == "⚡ Bulk Fee Entry (25+)":
                 if paying_students.empty:
                     st.warning("Enter an amount greater than 0 for at least one student before saving.")
                 else:
-                    updated_rows = []
+                    batch_cell_updates = []
                     history_rows = []
                     
-                    for idx, row in edited_df.iterrows():
-                        sheet_row = int(idx) + 2
+                    for _, row in paying_students.iterrows():
+                        sheet_row = int(row["Sheet_Row"])
                         paid_today = int(row["Amount_Paid_Today"])
                         new_total_paid = int(row["Amount_Paid"]) + paid_today
-                        updated_rows.append([
-                            int(row["Total_Fee"]),
-                            new_total_paid,
-                            f"=C{sheet_row}-D{sheet_row}"
-                        ])
                         
-                        if paid_today > 0:
-                            history_rows.append([
-                                str(batch_date),
-                                batch_class,
-                                str(row["Student_ID"]),
-                                str(row["Student_Name"]),
-                                paid_today,
-                                batch_note
-                            ])
+                        batch_cell_updates.append({
+                            "range": f"C{sheet_row}:E{sheet_row}",
+                            "values": [[int(row["Total_Fee"]), new_total_paid, f"=C{sheet_row}-D{sheet_row}"]]
+                        })
+                        
+                        history_rows.append([
+                            str(batch_date),
+                            batch_class,
+                            str(row["Student_ID"]),
+                            str(row["Student_Name"]),
+                            paid_today,
+                            batch_note
+                        ])
                     
-                    end_row = len(updated_rows) + 1
-                    worksheet.update(
-                        f"C2:E{end_row}",
-                        updated_rows,
-                        value_input_option="USER_ENTERED"
-                    )
+                    worksheet.batch_update(batch_cell_updates, value_input_option="USER_ENTERED")
                     
                     _, hist_ws = load_payment_history()
                     if hist_ws and history_rows:
@@ -552,25 +549,20 @@ elif page == "⚡ Bulk Fee Entry (25+)":
                     
                     for cls, items in updates_by_class.items():
                         cls_df, ws = load_class_data(cls)
+                        batch_updates = []
                         for s_id, s_name, amt in items:
                             mask = (cls_df["Student_ID"] == s_id) & (cls_df["Student_Name"] == s_name)
                             if mask.any():
                                 r_idx = cls_df[mask].index[0]
                                 cls_df.at[r_idx, "Amount_Paid"] = int(cls_df.at[r_idx, "Amount_Paid"]) + amt
                         
-                        updated_cols = []
-                        for idx, r in cls_df.iterrows():
-                            sheet_row = int(idx) + 2
-                            updated_cols.append([
-                                int(r["Total_Fee"]),
-                                int(r["Amount_Paid"]),
-                                f"=C{sheet_row}-D{sheet_row}"
-                            ])
-                        ws.update(
-                            f"C2:E{len(updated_cols) + 1}",
-                            updated_cols,
-                            value_input_option="USER_ENTERED"
-                        )
+                        for _, r in cls_df.iterrows():
+                            sheet_row = int(r["Sheet_Row"])
+                            batch_updates.append({
+                                "range": f"C{sheet_row}:E{sheet_row}",
+                                "values": [[int(r["Total_Fee"]), int(r["Amount_Paid"]), f"=C{sheet_row}-D{sheet_row}"]]
+                            })
+                        ws.batch_update(batch_updates, value_input_option="USER_ENTERED")
                     
                     _, hist_ws = load_payment_history()
                     if hist_ws and history_rows:
@@ -601,8 +593,11 @@ elif page == "📋 Class Balance & Print":
             display_df.insert(0, "Class", selected_filter)
             
     if display_df.empty:
-        st.info("No student records found for this selection.")
+        st.info("No enrolled student records found for this selection.")
     else:
+        if "Sheet_Row" in display_df.columns:
+            display_df = display_df.drop(columns=["Sheet_Row"])
+            
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Expected Fee", f"₹{int(display_df['Total_Fee'].sum()):,}")
         c2.metric("Total Fee Collected", f"₹{int(display_df['Amount_Paid'].sum()):,}")
@@ -628,7 +623,7 @@ elif page == "➕ Add New Student":
     st.markdown("""
     <div class="school-banner">
         <h2>➕ Enroll New Student</h2>
-        <p>Add a student to any class from LKG to 7th Standard.</p>
+        <p>Assigns a student to a pre-numbered ID slot or adds a new row at the bottom.</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -647,14 +642,30 @@ elif page == "➕ Add New Student":
             s_date = st.date_input("Admission / Payment Date", value=date.today())
         
         if st.form_submit_button("Enroll Student", use_container_width=True):
-            if s_id.strip() and s_name.strip():
-                existing_df, ws = load_class_data(s_class)
-                next_row = len(existing_df) + 2  # Exact next row right below existing students
-                balance = int(s_total) - int(s_paid)
+            clean_id = s_id.strip()
+            clean_name = s_name.strip()
+            
+            if clean_id and clean_name:
+                full_df, ws = load_class_data(s_class, include_unassigned=True)
+                matching_id_rows = full_df[full_df["Student_ID"] == clean_id]
                 
+                # Case 1: ID already exists in the sheet
+                if not matching_id_rows.empty:
+                    existing_row = matching_id_rows.iloc[0]
+                    if existing_row["Student_Name"] != "":
+                        st.error(f"⚠️ Student ID **{clean_id}** in **{s_class}** is already assigned to **{existing_row['Student_Name']}**!")
+                        st.stop()
+                    else:
+                        # Fill the pre-numbered empty slot (e.g., Row 8 for ID 107)
+                        target_row = int(existing_row["Sheet_Row"])
+                # Case 2: Brand new ID not in the sheet yet
+                else:
+                    target_row = (int(full_df["Sheet_Row"].max()) + 1) if not full_df.empty else 2
+                
+                balance = int(s_total) - int(s_paid)
                 ws.update(
-                    f"A{next_row}:E{next_row}",
-                    [[s_id.strip(), s_name.strip(), int(s_total), int(s_paid), f"=C{next_row}-D{next_row}"]],
+                    f"A{target_row}:E{target_row}",
+                    [[clean_id, clean_name, int(s_total), int(s_paid), f"=C{target_row}-D{target_row}"]],
                     value_input_option="USER_ENTERED"
                 )
                 
@@ -662,12 +673,12 @@ elif page == "➕ Add New Student":
                     _, hist_ws = load_payment_history()
                     if hist_ws:
                         hist_ws.append_row(
-                            [str(s_date), s_class, s_id.strip(), s_name.strip(), int(s_paid), "Initial Admission Fee"],
+                            [str(s_date), s_class, clean_id, clean_name, int(s_paid), "Initial Admission Fee"],
                             table_range="A1",
                             value_input_option="USER_ENTERED"
                         )
                 
-                st.session_state["enroll_msg"] = f"✅ Enrolled **{s_name.strip()}** into **{s_class}** (Row {next_row})! Remaining Balance: ₹{balance:,}"
+                st.session_state["enroll_msg"] = f"✅ Enrolled **{clean_name}** under ID **{clean_id}** in **{s_class}** (Row {target_row})! Remaining Balance: ₹{balance:,}"
                 st.rerun()
             else:
                 st.error("Please enter both Student ID and Student Full Name.")
