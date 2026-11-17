@@ -6,8 +6,7 @@ from google.oauth2.service_account import Credentials
 
 # --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="School Fee & Student Portal",
-    page_icon="🏫",
+    page_title="GVN School Fee & Student Portal",
     layout="wide"
 )
 
@@ -174,7 +173,7 @@ def check_login():
         with col_c:
             st.markdown("""
             <div class="school-banner" style="text-align:center;">
-                <h2>🏫 School Fee & Student Portal</h2>
+                <h2>GVN School Fee & Student Portal</h2>
                 <p>Authorized Staff & Headmaster Login</p>
             </div>
             """, unsafe_allow_html=True)
