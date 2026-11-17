@@ -6,11 +6,13 @@ from google.oauth2.service_account import Credentials
 
 # --- PAGE CONFIG ---
 st.set_page_config(
-    page_title="GVN School Fee Portal",
+    page_title="School Fee Portal",
+    page_icon="🏫",
     layout="wide"
 )
 
 CLASS_TABS = ["LKG", "UKG", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th"]
+EXPECTED_COLS = ["Student_ID", "Student_Name", "Total_Fee", "Amount_Paid", "Balance"]
 
 # --- CUSTOM AESTHETIC THEME (Honeydew, Mint, Seafoam, Paris Green, White, Black) ---
 st.markdown("""
@@ -176,7 +178,7 @@ def check_login():
         with col_c:
             st.markdown("""
             <div class="school-banner" style="text-align:center;">
-                <h2>GVN School Fee Management</h2>
+                <h2>🏫 School Fee Management</h2>
                 <p>Authorized Staff & Headmaster Login</p>
             </div>
             """, unsafe_allow_html=True)
@@ -196,7 +198,7 @@ def check_login():
 
 check_login()
 
-# --- GOOGLE SHEETS CONNECTION ---
+# --- GOOGLE SHEETS CONNECTION & SAFE PARSERS ---
 @st.cache_resource
 def get_spreadsheet():
     scopes = [
@@ -211,34 +213,70 @@ def get_spreadsheet():
 
 spreadsheet = get_spreadsheet()
 
+def clean_int_series(series):
+    """Safely converts strings, commas, currency symbols, or blanks into clean integers."""
+    cleaned = (
+        series.astype(str)
+        .str.replace("₹", "", regex=False)
+        .str.replace(",", "", regex=False)
+        .str.strip()
+    )
+    return pd.to_numeric(cleaned, errors="coerce").fillna(0).astype(int)
+
 def load_class_data(class_name):
+    """Reads columns A:E safely without failing on duplicate/blank headers or blank cells."""
     worksheet = spreadsheet.worksheet(class_name)
-    data = worksheet.get_all_records()
-    return pd.DataFrame(data), worksheet
+    all_values = worksheet.get_all_values()
+    
+    if len(all_values) <= 1:
+        return pd.DataFrame(columns=EXPECTED_COLS), worksheet
+    
+    rows = []
+    for r in all_values[1:]:
+        # Pad row to at least 5 columns
+        padded = (r + ["", "", "", "", ""])[:5]
+        # Skip completely empty rows
+        if any(cell.strip() != "" for cell in padded[:2]):
+            rows.append(padded)
+            
+    if not rows:
+        return pd.DataFrame(columns=EXPECTED_COLS), worksheet
+        
+    df = pd.DataFrame(rows, columns=EXPECTED_COLS)
+    df["Student_ID"] = df["Student_ID"].astype(str).str.strip()
+    df["Student_Name"] = df["Student_Name"].astype(str).str.strip()
+    df["Total_Fee"] = clean_int_series(df["Total_Fee"])
+    df["Amount_Paid"] = clean_int_series(df["Amount_Paid"])
+    df["Balance"] = df["Total_Fee"] - df["Amount_Paid"]
+    return df, worksheet
 
 def load_payment_history():
+    hist_cols = ["Date", "Class", "Student_ID", "Student_Name", "Amount_Paid", "Note"]
     try:
         hist_ws = spreadsheet.worksheet("Payment_History")
-        records = hist_ws.get_all_records()
-        return pd.DataFrame(records), hist_ws
+        all_values = hist_ws.get_all_values()
+        if len(all_values) <= 1:
+            return pd.DataFrame(columns=hist_cols), hist_ws
+        rows = [(r + ["", "", "", "", "", ""])[:6] for r in all_values[1:] if any(c.strip() for c in r)]
+        df = pd.DataFrame(rows, columns=hist_cols)
+        df["Amount_Paid"] = clean_int_series(df["Amount_Paid"])
+        return df, hist_ws
     except Exception:
-        return pd.DataFrame(columns=["Date", "Class", "Student_ID", "Student_Name", "Amount_Paid", "Note"]), None
+        return pd.DataFrame(columns=hist_cols), None
 
 def load_all_classes_data():
     all_dfs = []
     for cls in CLASS_TABS:
         try:
-            ws = spreadsheet.worksheet(cls)
-            records = ws.get_all_records()
-            if records:
-                temp_df = pd.DataFrame(records)
+            temp_df, _ = load_class_data(cls)
+            if not temp_df.empty:
                 temp_df.insert(0, "Class", cls)
                 all_dfs.append(temp_df)
         except Exception:
             pass
     if all_dfs:
         return pd.concat(all_dfs, ignore_index=True)
-    return pd.DataFrame()
+    return pd.DataFrame(columns=["Class"] + EXPECTED_COLS)
 
 # --- SIDEBAR NAVIGATION ---
 st.sidebar.markdown("## 🌿 Fee Portal Menu")
@@ -278,10 +316,10 @@ if page == "💳 Update Student Fee":
         st.warning(f"No student records found in **{selected_class}**.")
     else:
         with c_sel2:
-            student_names = df["Student_Name"].astype(str).tolist()
+            student_names = df["Student_Name"].tolist()
             selected_student = st.selectbox("Select Student", student_names)
         
-        student_row = df[df["Student_Name"].astype(str) == selected_student].iloc[0]
+        student_row = df[df["Student_Name"] == selected_student].iloc[0]
         row_index = int(student_row.name) + 2
         student_id = str(student_row["Student_ID"])
         
@@ -310,7 +348,6 @@ if page == "💳 Update Student Fee":
                     final_balance = new_total - final_paid
                     formula_str = f"=C{row_index}-D{row_index}"
                     
-                    # Write Total, Paid, and live Balance formula (=C{row}-D{row})
                     worksheet.update(
                         f"C{row_index}:E{row_index}",
                         [[new_total, final_paid, formula_str]],
@@ -327,7 +364,7 @@ if page == "💳 Update Student Fee":
                                 selected_student,
                                 add_payment,
                                 pay_note if pay_note else "Single Entry"
-                            ], value_input_option="USER_ENTERED")
+                            ], table_range="A1", value_input_option="USER_ENTERED")
                     
                     st.success(f"Updated **{selected_student}**! Remaining Balance: ₹{final_balance:,}")
                     st.rerun()
@@ -338,8 +375,8 @@ if page == "💳 Update Student Fee":
             
             if not hist_df.empty:
                 student_hist = hist_df[
-                    (hist_df["Class"].astype(str) == selected_class) &
-                    (hist_df["Student_Name"].astype(str) == selected_student)
+                    (hist_df["Class"].str.strip() == selected_class) &
+                    (hist_df["Student_Name"].str.strip() == selected_student)
                 ].copy()
             else:
                 student_hist = pd.DataFrame()
@@ -388,7 +425,7 @@ elif page == "⚡ Bulk Fee Entry (25+)":
         if df_class.empty:
             st.warning(f"No students found in {batch_class}.")
         else:
-            st.caption("👇 Type the amount received in the **Amount_Paid_Today** column (leave `0` for students who didn't pay today), then click **Save All Payments**.")
+            st.caption("👇 Type the amount received in the **Amount Paid Today** column (leave `0` for students who didn't pay today), then click **Save All Payments**.")
             
             editor_df = df_class[["Student_ID", "Student_Name", "Total_Fee", "Amount_Paid", "Balance"]].copy()
             editor_df["Amount_Paid_Today"] = 0
@@ -409,6 +446,7 @@ elif page == "⚡ Bulk Fee Entry (25+)":
                 height=500
             )
             
+            edited_df["Amount_Paid_Today"] = clean_int_series(edited_df["Amount_Paid_Today"])
             paying_students = edited_df[edited_df["Amount_Paid_Today"] > 0]
             
             c_sum1, c_sum2 = st.columns(2)
@@ -451,10 +489,9 @@ elif page == "⚡ Bulk Fee Entry (25+)":
                     
                     _, hist_ws = load_payment_history()
                     if hist_ws and history_rows:
-                        hist_ws.append_rows(history_rows, value_input_option="USER_ENTERED")
+                        hist_ws.append_rows(history_rows, table_range="A1", value_input_option="USER_ENTERED")
                     
                     st.success(f"Saved payments for **{len(paying_students)} students** in **{batch_class}** (Total: ₹{int(paying_students['Amount_Paid_Today'].sum()):,})!")
-                    st.balloons()
                     st.rerun()
 
     # --- MODE B: MULTI-CLASS CUSTOM ROWS ---
@@ -469,7 +506,7 @@ elif page == "⚡ Bulk Fee Entry (25+)":
             with c_date:
                 default_batch_date = st.date_input("Default Payment Date", value=date.today())
             
-            all_df["Display_Label"] = all_df["Class"] + " | " + all_df["Student_Name"].astype(str) + " (ID: " + all_df["Student_ID"].astype(str) + ")"
+            all_df["Display_Label"] = all_df["Class"] + " | " + all_df["Student_Name"] + " (ID: " + all_df["Student_ID"] + ")"
             student_options = all_df["Display_Label"].tolist()
             
             template_df = pd.DataFrame({
@@ -492,6 +529,7 @@ elif page == "⚡ Bulk Fee Entry (25+)":
                 hide_index=True
             )
             
+            custom_edited["Amount_Paid"] = clean_int_series(custom_edited["Amount_Paid"])
             valid_entries = custom_edited.dropna(subset=["Student"])
             valid_entries = valid_entries[valid_entries["Amount_Paid"] > 0]
             
@@ -515,7 +553,7 @@ elif page == "⚡ Bulk Fee Entry (25+)":
                     for cls, items in updates_by_class.items():
                         cls_df, ws = load_class_data(cls)
                         for s_id, s_name, amt in items:
-                            mask = (cls_df["Student_ID"].astype(str) == s_id) & (cls_df["Student_Name"].astype(str) == s_name)
+                            mask = (cls_df["Student_ID"] == s_id) & (cls_df["Student_Name"] == s_name)
                             if mask.any():
                                 r_idx = cls_df[mask].index[0]
                                 cls_df.at[r_idx, "Amount_Paid"] = int(cls_df.at[r_idx, "Amount_Paid"]) + amt
@@ -536,7 +574,7 @@ elif page == "⚡ Bulk Fee Entry (25+)":
                     
                     _, hist_ws = load_payment_history()
                     if hist_ws and history_rows:
-                        hist_ws.append_rows(history_rows, value_input_option="USER_ENTERED")
+                        hist_ws.append_rows(history_rows, table_range="A1", value_input_option="USER_ENTERED")
                     
                     st.success(f"Successfully recorded **{len(valid_entries)} payments** across **{len(updates_by_class)} classes**!")
                     st.rerun()
@@ -594,7 +632,10 @@ elif page == "➕ Add New Student":
     </div>
     """, unsafe_allow_html=True)
     
-    with st.form("add_student_form"):
+    if "enroll_msg" in st.session_state:
+        st.success(st.session_state.pop("enroll_msg"))
+    
+    with st.form("add_student_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
             s_class = st.selectbox("Class", CLASS_TABS)
@@ -606,25 +647,27 @@ elif page == "➕ Add New Student":
             s_date = st.date_input("Admission / Payment Date", value=date.today())
         
         if st.form_submit_button("Enroll Student", use_container_width=True):
-            if s_id and s_name:
-                balance = s_total - s_paid
-                ws = spreadsheet.worksheet(s_class)
-                next_row = len(ws.get_all_values()) + 1
+            if s_id.strip() and s_name.strip():
+                existing_df, ws = load_class_data(s_class)
+                next_row = len(existing_df) + 2  # Exact next row right below existing students
+                balance = int(s_total) - int(s_paid)
                 
-                ws.append_row(
-                    [s_id, s_name, s_total, s_paid, f"=C{next_row}-D{next_row}"],
+                ws.update(
+                    f"A{next_row}:E{next_row}",
+                    [[s_id.strip(), s_name.strip(), int(s_total), int(s_paid), f"=C{next_row}-D{next_row}"]],
                     value_input_option="USER_ENTERED"
                 )
                 
-                if s_paid > 0:
+                if int(s_paid) > 0:
                     _, hist_ws = load_payment_history()
                     if hist_ws:
                         hist_ws.append_row(
-                            [str(s_date), s_class, s_id, s_name, s_paid, "Initial Admission Fee"],
+                            [str(s_date), s_class, s_id.strip(), s_name.strip(), int(s_paid), "Initial Admission Fee"],
+                            table_range="A1",
                             value_input_option="USER_ENTERED"
                         )
                 
-                st.success(f"**{s_name}** added to **{s_class}**! Remaining Balance: ₹{balance:,}")
+                st.session_state["enroll_msg"] = f"✅ Enrolled **{s_name.strip()}** into **{s_class}** (Row {next_row})! Remaining Balance: ₹{balance:,}"
                 st.rerun()
             else:
                 st.error("Please enter both Student ID and Student Full Name.")
