@@ -30,6 +30,16 @@ st.markdown("""
         color: var(--ink-black);
     }
 
+    /* Force dark, crisp text on all form labels & captions */
+    [data-testid="stWidgetLabel"],
+    [data-testid="stWidgetLabel"] p,
+    [data-testid="stWidgetLabel"] label,
+    .stMarkdown p {
+        color: var(--ink-black) !important;
+        font-weight: 600 !important;
+    }
+
+    /* Sidebar Styling */
     [data-testid="stSidebar"] {
         background-color: var(--ink-black);
         border-right: 3px solid var(--paris-bright);
@@ -47,6 +57,7 @@ st.markdown("""
         letter-spacing: -0.02em;
     }
 
+    /* Metric Cards */
     [data-testid="stMetric"] {
         background-color: var(--pure-white);
         border: 1.5px solid var(--mint-green);
@@ -55,7 +66,7 @@ st.markdown("""
         border-radius: 12px;
         box-shadow: 0 4px 12px rgba(17, 24, 20, 0.05);
     }
-    [data-testid="stMetricLabel"] {
+    [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {
         color: #2D4A3E !important;
         font-weight: 600 !important;
         font-size: 0.9rem !important;
@@ -65,6 +76,7 @@ st.markdown("""
         font-weight: 800 !important;
     }
 
+    /* Forms & Containers */
     [data-testid="stForm"] {
         background-color: var(--pure-white);
         border: 1.5px solid var(--mint-green);
@@ -73,6 +85,7 @@ st.markdown("""
         box-shadow: 0 6px 18px rgba(17, 24, 20, 0.04);
     }
 
+    /* Primary & Form Submit Buttons */
     .stButton > button, [data-testid="stFormSubmitButton"] > button {
         background: linear-gradient(135deg, var(--paris-bright), var(--paris-green)) !important;
         color: var(--pure-white) !important;
@@ -83,12 +96,16 @@ st.markdown("""
         transition: all 0.2s ease !important;
         box-shadow: 0 3px 8px rgba(46, 139, 87, 0.25) !important;
     }
+    .stButton > button p, [data-testid="stFormSubmitButton"] > button p {
+        color: var(--pure-white) !important;
+    }
     .stButton > button:hover, [data-testid="stFormSubmitButton"] > button:hover {
         background: var(--ink-black) !important;
         color: var(--seafoam) !important;
         transform: translateY(-1px);
     }
 
+    /* Download Button */
     [data-testid="stDownloadButton"] > button {
         background-color: var(--pure-white) !important;
         color: var(--paris-green) !important;
@@ -96,21 +113,27 @@ st.markdown("""
         border-radius: 10px !important;
         font-weight: 600 !important;
     }
-    [data-testid="stDownloadButton"] > button:hover {
-        background-color: var(--seafoam) !important;
-        color: var(--ink-black) !important;
+    [data-testid="stDownloadButton"] > button p {
+        color: var(--paris-green) !important;
     }
 
+    /* Inputs, Date Pickers & Placeholders */
     .stSelectbox div[data-baseweb="select"] > div,
     .stTextInput input,
     .stNumberInput input,
-    .stDateInput input {
+    .stDateInput input,
+    div[data-baseweb="input"] {
         background-color: var(--pure-white) !important;
         color: var(--ink-black) !important;
         border: 1.5px solid var(--mint-green) !important;
         border-radius: 8px !important;
     }
+    input::placeholder {
+        color: #5C7568 !important;
+        opacity: 1 !important;
+    }
 
+    /* Header Banner */
     .school-banner {
         background: linear-gradient(120deg, var(--ink-black) 0%, #1B3B2B 60%, var(--paris-green) 100%);
         color: var(--pure-white);
@@ -125,7 +148,7 @@ st.markdown("""
         font-size: 1.55rem;
     }
     .school-banner p {
-        color: var(--mint-green);
+        color: var(--mint-green) !important;
         margin: 4px 0 0 0;
         font-size: 0.95rem;
     }
